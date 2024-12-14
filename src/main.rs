@@ -1,36 +1,46 @@
-use reqwest;
-use scraper::{Html, Selector};
-use tokio;
+use reqwest::Client;
 
 struct Product {
-    url: Option<String>,
-    image: Option<String>,
+    prod_url: Option<String>,
+    prod_image: Option<String>,
     title: Option<String>,
     price: Option<String>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let url = "https://scrapeme.live/shop/".to_string();
-    scraper(url);
+    let products: Vec<Product> = scraper(url).await;
+
+    for product in products {
+        println!(
+            "name = {:?}, url= {:?}, image= {:?}, price= {:?}",
+            product.title, product.prod_url, product.prod_image, product.price
+        );
+    }
 }
 
-fn scraper(url: String) -> Vec<Product> {
-    let response = reqwest::blocking::get(url).unwrap();
+async fn scraper(url: String) -> Vec<Product> {
+    let client = Client::new();
 
-    let html_content: String = response.text().unwrap();
+    let response = client.get(url).send().await.unwrap();
+
+    let html_content: String = response.text().await.unwrap();
 
     let document = scraper::Html::parse_document(&html_content);
 
     let html_product_selector = scraper::Selector::parse("li.product").unwrap();
+
     let html_products = document.select(&html_product_selector);
     let mut products: Vec<Product> = Vec::new();
+
     for html_product in html_products {
-        let url = html_product
+        let prod_url = html_product
             .select(&scraper::Selector::parse("a").unwrap())
             .next()
             .and_then(|a| a.value().attr("href"))
             .map(str::to_owned);
-        let image = html_product
+        let prod_image = html_product
             .select(&scraper::Selector::parse("img").unwrap())
             .next()
             .and_then(|img| img.value().attr("src"))
@@ -44,13 +54,12 @@ fn scraper(url: String) -> Vec<Product> {
             .next()
             .map(|price| price.text().collect::<String>());
 
-        let product = Product {
-            url,
-            image,
+        products.push(Product {
+            prod_url,
+            prod_image,
             title,
             price,
-        };
-        products.push(product);
+        });
     }
     products
 }
