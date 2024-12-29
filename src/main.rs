@@ -1,4 +1,8 @@
+use dotenv::dotenv;
 use reqwest::Client;
+use scraper::{Html, Selector};
+use sqlx::PgPool;
+use std::env;
 
 struct Product {
     prod_url: Option<String>,
@@ -8,49 +12,53 @@ struct Product {
 }
 
 #[tokio::main]
-async fn main() {
-    let url = "https://scrapeme.live/shop/".to_string();
-    let products: Vec<Product> = scraper(url).await;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
+    let database_url = env::var("DATABASE_URL")?;
 
+    let _conn = PgPool::connect(&database_url).await?;
+    let url = "https://scrapeme.live/shop/".to_string();
+
+    let products = scraper(url).await?;
     for product in products {
         println!(
-            "name = {:?}, url= {:?}, image= {:?}, price= {:?}",
+            "name = {:?}, url = {:?}, image = {:?}, price = {:?}",
             product.title, product.prod_url, product.prod_image, product.price
         );
     }
+
+    Ok(())
 }
 
-async fn scraper(url: String) -> Vec<Product> {
+async fn scraper(url: String) -> Result<Vec<Product>, Box<dyn std::error::Error>> {
     let client = Client::new();
 
-    let response = client.get(url).send().await.unwrap();
+    let response = client.get(url).send().await?;
+    let html_content: String = response.text().await?;
 
-    let html_content: String = response.text().await.unwrap();
-
-    let document = scraper::Html::parse_document(&html_content);
-
-    let html_product_selector = scraper::Selector::parse("li.product").unwrap();
+    let document = Html::parse_document(&html_content);
+    let html_product_selector = Selector::parse("li.product").unwrap();
 
     let html_products = document.select(&html_product_selector);
     let mut products: Vec<Product> = Vec::new();
 
     for html_product in html_products {
         let prod_url = html_product
-            .select(&scraper::Selector::parse("a").unwrap())
+            .select(&Selector::parse("a").unwrap())
             .next()
             .and_then(|a| a.value().attr("href"))
             .map(str::to_owned);
         let prod_image = html_product
-            .select(&scraper::Selector::parse("img").unwrap())
+            .select(&Selector::parse("img").unwrap())
             .next()
             .and_then(|img| img.value().attr("src"))
             .map(str::to_owned);
         let title = html_product
-            .select(&scraper::Selector::parse("h2").unwrap())
+            .select(&Selector::parse("h2").unwrap())
             .next()
             .map(|h2| h2.text().collect::<String>());
         let price = html_product
-            .select(&scraper::Selector::parse(".price").unwrap())
+            .select(&Selector::parse(".price").unwrap())
             .next()
             .map(|price| price.text().collect::<String>());
 
@@ -61,5 +69,5 @@ async fn scraper(url: String) -> Vec<Product> {
             price,
         });
     }
-    products
+    Ok(products)
 }
